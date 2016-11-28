@@ -33,6 +33,7 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/stat.h>
 
 #if __STDC__
 struct mbuf;
@@ -158,6 +159,10 @@ int main(int argc, char **argv)
 	char *cp;
 	int op, snaplen, timeout, linktype, status;
 	int ret;
+	int is_fifo = 0;
+	struct stat fst;
+	int *tfile = (int *) malloc(sizeof(int));
+  	*tfile = -1;
 
 	pcap_t *pd;
 	char *interface, *rfilename;
@@ -279,7 +284,12 @@ int main(int argc, char **argv)
 			exit(1);
 		}
 		swapped = pcap_is_swapped(pd);
-
+		
+		/* Check for FIFO */
+		*tfile = open(rfilename, O_RDONLY);
+		fstat(*tfile,&fst);
+		if ( S_ISFIFO(fst.st_mode) ) is_fifo = 1;
+		close(*tfile);
 	} else {
 
 		/* Determine interface if not specified */
@@ -396,7 +406,12 @@ int main(int argc, char **argv)
 	switch (linktype) {
 
 	case DLT_EN10MB:
+		retry_read:
 		status = pcap_loop(pd, 0, process_ether, NULL);
+		// FIFO needs to be open and readble
+		if (status < 0 || errno == EINTR) {
+			if ( is_fifo == 1 && access( rfilename, F_OK ) != -1) goto retry_read;
+		}
 		break;
 
 	default:
